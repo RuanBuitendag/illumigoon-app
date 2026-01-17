@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 // detect if running in dev mode (localhost) or on ESP32
 const isDev = import.meta.env.DEV;
-const DEFAULT_HOST = isDev ? 'http://192.168.1.156' : ''; // Change proxy IP as needed
+const DEFAULT_HOST = isDev ? 'http://illumigoon.local' : ''; // mDNS hostname for local dev
 
 export const useIllumigoonStore = create((set, get) => ({
     targetIp: DEFAULT_HOST,
@@ -105,7 +105,9 @@ export const useIllumigoonStore = create((set, get) => ({
             await fetch(`${get().targetIp}/api/animation`, {
                 method: 'POST',
                 body: JSON.stringify({ name }),
-                headers: { 'Content-Type': 'application/json' }
+                // Using text/plain avoids CORS Preflight (OPTIONS) requests, 
+                // which the current firmware might not handle perfectly.
+                headers: { 'Content-Type': 'text/plain' }
             });
             // Optimistic update
             get().setStatus({ animation: name });
