@@ -1,6 +1,6 @@
 import React from 'react';
 import { useIllumigoonStore } from '../api';
-import { Play, Sparkles } from 'lucide-react';
+import { Play, Sparkles, Pencil } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export const AnimationSelector = () => {
@@ -59,24 +59,40 @@ export const AnimationSelector = () => {
                                 <div className="absolute inset-0 rounded-2xl ring-2 ring-brand-400/50 ring-offset-2 ring-offset-[#09090b] pointer-events-none" />
                             )}
 
-                            {/* Delete Button (visible on hover or if managing) */}
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (confirm(`Delete preset "${anim}"?`)) {
-                                        useIllumigoonStore.getState().deletePreset(anim);
-                                    }
-                                }}
-                                className="absolute top-2 right-2 p-1.5 rounded-full bg-zinc-800/80 text-zinc-500 hover:text-red-400 hover:bg-zinc-700 opacity-0 group-hover:opacity-100 transition-all"
-                                title="Delete Preset"
-                            >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                                </svg>
-                            </button>
+                            {/* Actions (visible on hover) */}
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const newName = prompt("Rename preset:", anim);
+                                        if (newName && newName.trim() !== "" && newName !== anim) {
+                                            useIllumigoonStore.getState().renamePreset(anim, newName.trim());
+                                        }
+                                    }}
+                                    className="p-1.5 rounded-full bg-zinc-800/80 text-zinc-500 hover:text-blue-400 hover:bg-zinc-700"
+                                    title="Rename Preset"
+                                >
+                                    <Pencil size={12} />
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm(`Delete preset "${anim}"?`)) {
+                                            useIllumigoonStore.getState().deletePreset(anim);
+                                        }
+                                    }}
+                                    className="p-1.5 rounded-full bg-zinc-800/80 text-zinc-500 hover:text-red-400 hover:bg-zinc-700"
+                                    title="Delete Preset"
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                </button>
+                            </div>
                         </motion.button>
                     );
+
 
                 })}
             </div>

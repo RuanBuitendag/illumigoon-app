@@ -167,6 +167,20 @@ export const useIllumigoonStore = create((set, get) => ({
         }
     },
 
+    renamePreset: async (oldName, newName) => {
+        try {
+            await fetch(`${get().targetIp}/api/renamePreset`, {
+                method: 'POST',
+                body: JSON.stringify({ oldName, newName }),
+                headers: { 'Content-Type': 'text/plain' }
+            });
+            // Refresh lists
+            get().fetchAnimations();
+        } catch (e) {
+            console.error("Rename Preset Failed", e);
+        }
+    },
+
     deletePreset: async (name) => {
         try {
             await fetch(`${get().targetIp}/api/deletePreset`, {
