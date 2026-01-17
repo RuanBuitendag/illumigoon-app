@@ -222,10 +222,18 @@ const ParamPalette = ({ param, onUpdate }) => {
 };
 
 export const ParamControls = () => {
-    const { params, sendCommand } = useIllumigoonStore();
+    // Combine store access
+    const { params, sendCommand, savePreset, currentBaseType, status } = useIllumigoonStore();
 
-    // Simple throttle implementation to prevent WS flooding
+    // Simple throttle implementation
     const lastSentRef = React.useRef({});
+
+    // Hooks must be unconditional
+    const [showSave, setShowSave] = React.useState(false);
+    const [presetName, setPresetName] = React.useState('');
+
+    // Early return AFTER hooks
+    if (!params || params.length === 0) return null;
 
     const handleUpdate = (name, value, type) => {
         // Optimistic Update (Immediate)
@@ -241,7 +249,12 @@ export const ParamControls = () => {
         }
     };
 
-    if (!params || params.length === 0) return null;
+    const handleSave = () => {
+        if (!presetName.trim()) return;
+        savePreset(presetName, currentBaseType || "Fire"); // Fallback if missing? Should not happen.
+        setShowSave(false);
+        setPresetName('');
+    };
 
     return (
         <section className="premium-card p-6">
@@ -252,7 +265,7 @@ export const ParamControls = () => {
                 </h3>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 mb-6">
                 {params.map((p) => {
                     switch (p.type) {
                         case 0: // INT
@@ -270,6 +283,43 @@ export const ParamControls = () => {
                     }
                 })}
             </div>
+
+            <div className="pt-4 border-t border-white/5">
+                {!showSave ? (
+                    <button
+                        onClick={() => { setShowSave(true); setPresetName(status.animation); }}
+                        className="w-full py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium text-zinc-300 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                        Save as Preset
+                    </button>
+                ) : (
+                    <div className="flex flex-col gap-3 animate-fade-in-up">
+                        <input
+                            type="text"
+                            value={presetName}
+                            onChange={(e) => setPresetName(e.target.value)}
+                            placeholder="Preset Name"
+                            className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 transition-colors"
+                            autoFocus
+                        />
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleSave}
+                                className="flex-1 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-colors"
+                            >
+                                Save
+                            </button>
+                            <button
+                                onClick={() => setShowSave(false)}
+                                className="px-4 py-2 bg-transparent hover:bg-zinc-800 text-zinc-400 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
         </section>
     );
 };
+

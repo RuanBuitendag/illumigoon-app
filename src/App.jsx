@@ -2,17 +2,21 @@ import React, { useEffect } from 'react';
 import { useIllumigoonStore } from './api';
 import { Header } from './components/Header';
 import { HeroData } from './components/HeroData';
+import { BaseAnimationSelector } from './components/BaseAnimationSelector';
 import { AnimationSelector } from './components/AnimationSelector';
 import { ParamControls } from './components/ParamControls';
 import { PeerList } from './components/PeerList';
 
 function App() {
-  const { isConnected, connectWebSocket, fetchAnimations, fetchParams, status } = useIllumigoonStore();
+  const { isConnected, connectWebSocket, fetchAnimations, fetchBaseAnimations, fetchParams, status } = useIllumigoonStore();
+
 
   useEffect(() => {
     connectWebSocket();
     fetchAnimations();
+    fetchBaseAnimations();
     fetchParams();
+
 
     const interval = setInterval(() => {
       fetchParams();
@@ -39,8 +43,10 @@ function App() {
             </div>
 
             {/* Right Column: Animations Grid */}
-            <div className="lg:col-span-8 flex flex-col">
+            <div className="lg:col-span-8 flex flex-col space-y-8">
+              <BaseAnimationSelector />
               <AnimationSelector />
+
               {/* Mobile Only PeerList */}
               <div className="lg:hidden mt-8 pt-8 border-t border-white/5">
                 <PeerList />

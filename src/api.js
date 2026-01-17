@@ -9,10 +9,14 @@ export const useIllumigoonStore = create((set, get) => ({
     isConnected: false,
     status: { brightness: 255, animation: 'Loading...', uptime: 0 },
     peers: [],
-    animations: [],
+    animations: [], // This will now contain Preset Names
+    baseAnimations: [], // This will contain Base Animation Types
     params: [],
+    currentBaseType: null,
 
     setTargetIp: (ip) => {
+
+
         // If ip is just an IP address, prepend http://
         // If empty/local, use empty string for relative paths
         const host = ip ? (ip.startsWith('http') ? ip : `http://${ip}`) : '';
@@ -51,9 +55,16 @@ export const useIllumigoonStore = create((set, get) => ({
                 if (msg.event === 'status') {
                     get().setStatus(msg.data);
                 } else if (msg.event === 'params') {
-                    get().setParams(msg.data);
+                    // Handle new structure { baseType: "", params: [] }
+                    // Or fallback if array (backwards compat?)
+                    if (Array.isArray(msg.data)) {
+                        get().setParams(msg.data);
+                    } else if (msg.data && msg.data.params) {
+                        set({ params: msg.data.params, currentBaseType: msg.data.baseType });
+                    }
                 }
             } catch (e) {
+
                 console.error('WS Parse Error', e);
             }
         };
@@ -72,6 +83,17 @@ export const useIllumigoonStore = create((set, get) => ({
         }
     },
 
+    fetchBaseAnimations: async () => {
+        try {
+            const res = await fetch(`${get().targetIp}/api/baseAnimations`);
+            const data = await res.json();
+            set({ baseAnimations: data });
+        } catch (e) {
+            console.error('Fetch Base Anim failed', e);
+        }
+    },
+
+
     fetchPeers: async () => {
         try {
             const res = await fetch(`${get().targetIp}/api/mesh/peers`);
@@ -86,11 +108,16 @@ export const useIllumigoonStore = create((set, get) => ({
         try {
             const res = await fetch(`${get().targetIp}/api/params`);
             const data = await res.json();
-            set({ params: data });
+            if (Array.isArray(data)) {
+                set({ params: data });
+            } else if (data && data.params) {
+                set({ params: data.params, currentBaseType: data.baseType });
+            }
         } catch (e) {
             console.error('Fetch Params failed', e);
         }
     },
+
 
     sendCommand: (cmd, payload = {}) => {
         const { socket } = get();
@@ -124,5 +151,34 @@ export const useIllumigoonStore = create((set, get) => ({
 
     reboot: () => {
         get().sendCommand('reboot');
+    },
+
+    savePreset: async (name, baseType) => {
+        try {
+            await fetch(`${get().targetIp}/api/savePreset`, {
+                method: 'POST',
+                body: JSON.stringify({ name, baseType }),
+                headers: { 'Content-Type': 'text/plain' }
+            });
+            // Refresh lists
+            get().fetchAnimations();
+        } catch (e) {
+            console.error("Save Preset Failed", e);
+        }
+    },
+
+    deletePreset: async (name) => {
+        try {
+            await fetch(`${get().targetIp}/api/deletePreset`, {
+                method: 'POST',
+                body: JSON.stringify({ name }),
+                headers: { 'Content-Type': 'text/plain' }
+            });
+            // Refresh lists
+            get().fetchAnimations();
+        } catch (e) {
+            console.error("Delete Preset Failed", e);
+        }
     }
+
 }));

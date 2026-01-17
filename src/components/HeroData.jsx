@@ -1,13 +1,13 @@
 import { useIllumigoonStore } from '../api';
 import React from 'react';
-import { Sun, Power, RotateCcw } from 'lucide-react';
+import { Power, RotateCcw } from 'lucide-react';
 
 export function HeroData({ status }) {
     const { setPower, reboot } = useIllumigoonStore();
 
     // Determine if we have a valid status or loading
     const animationName = status?.animation || "Loading...";
-    const brightness = status?.brightness || 0;
+
     const isPowered = status?.power ?? true;
 
     return (
@@ -59,34 +59,7 @@ export function HeroData({ status }) {
                 </button>
             </div>
 
-            {/* Brightness Control integrated into Hero (Only visible when powered) */}
-            <div className={`bg-zinc-900/80 rounded-xl p-4 border border-white/5 transition-opacity duration-500 ${isPowered ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
-                <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2 text-zinc-400">
-                        <Sun size={16} />
-                        <span className="text-xs font-medium uppercase tracking-wider">Master Brightness</span>
-                    </div>
-                    <span className="text-xs font-mono text-zinc-300">{brightness}%</span>
-                </div>
 
-                {/* Custom Range Slider Styling */}
-                <div className="relative h-12 flex items-center">
-                    <input
-                        type="range"
-                        min="0"
-                        max="255"
-                        defaultValue={brightness} // TODO: Bind to actual onChange later
-                        className="w-full h-full opacity-0 absolute z-20 cursor-pointer"
-                    />
-                    {/* Viz track */}
-                    <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden relative z-10">
-                        <div
-                            className="h-full bg-brand-500 rounded-full transition-all duration-300"
-                            style={{ width: `${(brightness / 255) * 100}%` }}
-                        />
-                    </div>
-                </div>
-            </div>
         </section>
     );
 }
