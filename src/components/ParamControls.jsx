@@ -115,51 +115,105 @@ const ParamColor = ({ param, onUpdate }) => {
 };
 
 const ParamPalette = ({ param, onUpdate }) => {
-    // Value should be array of 16 hex strings
-    // If not array, mock it
-    const colors = Array.isArray(param.value) ? param.value : Array(16).fill("#000000");
-    const [elapsed, setElapsed] = React.useState(0);
+    // Value should be array of hex strings
+    // If not array, use empty array (or default if null)
+    const colors = Array.isArray(param.value) ? param.value : [];
+
+    // Safety check: if colors is empty, maybe add a default black? 
+    // But user might want empty. Firmware handles empty -> black palette.
+
     const [activeIndex, setActiveIndex] = React.useState(null);
 
-    // Close picker when clicking outside? For now, toggle logic on the swatch.
+    const handleAddColor = () => {
+        const newColors = [...colors, "#FFFFFF"];
+        onUpdate(param.name, newColors, param.type);
+        // Optionally open the picker for the new color
+        setActiveIndex(newColors.length - 1);
+    };
+
+    const handleRemoveColor = (index) => {
+        const newColors = colors.filter((_, i) => i !== index);
+        onUpdate(param.name, newColors, param.type);
+        if (activeIndex === index) setActiveIndex(null);
+        else if (activeIndex > index) setActiveIndex(activeIndex - 1);
+    };
+
+    const handleColorChange = (newColor) => {
+        if (activeIndex === null) return;
+        const newColors = [...colors];
+        newColors[activeIndex] = newColor;
+        onUpdate(param.name, newColors, param.type);
+    };
 
     return (
         <div className="mb-6">
             <label className="text-sm font-medium text-zinc-300 mb-1 block">{param.name}</label>
             {param.description && <p className="text-xs text-zinc-500 mb-3">{param.description}</p>}
 
-            {/* Palette Grid */}
-            <div className="grid grid-cols-8 gap-1 mb-3">
+            {/* Palette Swatches */}
+            <div className="flex flex-wrap gap-2 mb-3">
                 {colors.map((color, idx) => (
                     <button
                         key={idx}
                         onClick={() => setActiveIndex(activeIndex === idx ? null : idx)}
-                        className={`aspect-square rounded-sm border transition-transform hover:scale-105 focus:outline-none ${activeIndex === idx
+                        className={`w-9 h-9 rounded-md border transition-all hover:scale-105 focus:outline-none ${activeIndex === idx
                             ? 'border-white scale-110 shadow-lg shadow-white/20 z-10'
-                            : 'border-white/10 opacity-90 hover:opacity-100'
+                            : 'border-white/10'
                             }`}
                         style={{ backgroundColor: color }}
                         title={`Index ${idx}: ${color}`}
                     />
                 ))}
+
+                {/* Add Button */}
+                <button
+                    onClick={handleAddColor}
+                    className="w-9 h-9 rounded-md border border-white/10 border-dashed hover:border-white/40 flex items-center justify-center text-zinc-500 hover:text-white transition-colors"
+                    title="Add Color"
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
             </div>
 
             {/* Picker for Active Index */}
-            {activeIndex !== null && (
+            {activeIndex !== null && activeIndex < colors.length && (
                 <div className="flex flex-col gap-3 p-3 bg-zinc-800/50 rounded-lg border border-white/5 animate-in fade-in zoom-in-95 duration-200">
                     <div className="flex justify-between items-center">
                         <span className="text-xs text-zinc-400">Editing Color {activeIndex + 1}</span>
-                        <button onClick={() => setActiveIndex(null)} className="text-xs text-zinc-500 hover:text-white">Close</button>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => handleRemoveColor(activeIndex)}
+                                className="text-xs text-red-400 hover:text-red-300"
+                            >
+                                Remove
+                            </button>
+                            <button
+                                onClick={() => setActiveIndex(null)}
+                                className="text-xs text-zinc-500 hover:text-white"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                     <div className="w-full [&_.react-colorful]:w-full [&_.react-colorful]:!h-32 [&_.react-colorful__hue]:!h-3 [&_.react-colorful__saturation]:!rounded-lg [&_.react-colorful__hue]:!rounded-lg [&_.react-colorful__pointer]:!w-4 [&_.react-colorful__pointer]:!h-4">
                         <HexColorPicker
                             color={colors[activeIndex]}
-                            onChange={(newColor) => {
-                                const newColors = [...colors];
-                                newColors[activeIndex] = newColor;
-                                onUpdate(param.name, newColors, param.type);
-                            }}
+                            onChange={handleColorChange}
                         />
+                    </div>
+                    <div className="flex gap-2">
+                        {PRESET_COLORS.map((preset) => (
+                            <button
+                                key={preset.value}
+                                onClick={() => handleColorChange(preset.value)}
+                                className="w-6 h-6 rounded-full border border-white/10"
+                                style={{ backgroundColor: preset.value }}
+                                title={preset.label}
+                            />
+                        ))}
                     </div>
                 </div>
             )}

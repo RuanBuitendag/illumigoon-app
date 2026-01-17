@@ -114,5 +114,15 @@ export const useIllumigoonStore = create((set, get) => ({
         } catch (e) {
             console.error("Set Anim Failed", e);
         }
+    },
+
+    setPower: (isOn) => {
+        get().sendCommand('setPower', { value: isOn });
+        // Optimistic update
+        get().setStatus({ power: isOn });
+    },
+
+    reboot: () => {
+        get().sendCommand('reboot');
     }
 }));
