@@ -23,13 +23,13 @@ export const AnimationSelector = () => {
                 {animations.map((anim) => {
                     const isActive = status.animation === anim;
                     return (
-                        <motion.button
+                        <motion.div
                             key={anim}
                             whileTap={{ scale: 0.96 }}
                             whileHover={{ scale: 1.02 }}
                             onClick={() => setAnimation(anim)}
                             className={`
-                group relative h-24 rounded-2xl flex flex-col items-start justify-between p-4 text-left border transition-all duration-300
+                group relative h-24 rounded-2xl flex flex-col items-start justify-between p-4 text-left border transition-all duration-300 cursor-pointer
                 ${isActive
                                     ? 'bg-brand-600 border-transparent shadow-lg shadow-brand-500/20'
                                     : 'bg-zinc-900/50 border-white/5 hover:bg-zinc-800 hover:border-white/10'
@@ -90,7 +90,7 @@ export const AnimationSelector = () => {
                                     </svg>
                                 </button>
                             </div>
-                        </motion.button>
+                        </motion.div>
                     );
 
 
