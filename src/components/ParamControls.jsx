@@ -7,9 +7,21 @@ const ParamSlider = ({ param, onUpdate }) => (
     <div className="mb-6">
         <div className="flex justify-between mb-1">
             <label className="text-sm font-medium text-zinc-300">{param.name}</label>
-            <span className="text-xs font-mono text-zinc-500 bg-zinc-900/50 px-2 py-0.5 rounded">
-                {param.value}
-            </span>
+            <input
+                type="number"
+                min={param.min}
+                max={param.max}
+                step={param.step || 1}
+                value={param.value}
+                onChange={(e) => {
+                    let val = Number(e.target.value);
+                    if (!isNaN(val)) {
+                        val = Math.min(param.max, Math.max(param.min, val));
+                        onUpdate(param.name, val, param.type);
+                    }
+                }}
+                className="no-spinner w-20 text-xs font-mono text-zinc-300 bg-zinc-900/50 px-2 py-0.5 rounded text-center border border-transparent hover:border-white/20 focus:border-brand-500 focus:outline-none transition-colors"
+            />
         </div>
         {param.description && <p className="text-xs text-zinc-500 mb-2">{param.description}</p>}
         <div className="relative h-10 w-full flex items-center">
