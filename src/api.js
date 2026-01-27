@@ -21,7 +21,8 @@ export const useIllumigoonStore = create((set, get) => ({
     currentBaseType: null,
 
     setTargetIp: (ip) => {
-
+        // Reset status to prevent stale data from previous device
+        set({ status: { brightness: 255, animation: 'Loading...', uptime: 0, version: null } });
 
         // If ip is just an IP address, prepend http://
         // If empty/local, use empty string for relative paths

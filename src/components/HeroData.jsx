@@ -30,6 +30,11 @@ export function HeroData({ status }) {
                             <span className="text-xs text-zinc-400 font-mono">
                                 {isPowered ? "SYSTEM ACTIVE" : "SYSTEM OFFLINE"}
                             </span>
+                            {status?.version && (
+                                <span className="text-xs text-zinc-500 font-mono ml-2">
+                                    v{status.version}
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
