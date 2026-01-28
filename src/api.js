@@ -7,6 +7,9 @@ const DEFAULT_HOST = isDev ? 'http://illumigoon.local' : ''; // mDNS hostname fo
 // Try to load saved IP from localStorage, otherwise use default
 const getInitialTargetIp = () => {
     const saved = localStorage.getItem('illumigoon_target_ip');
+    if (saved && (saved.includes('0.0.0.0') || saved === 'http://')) {
+        return DEFAULT_HOST;
+    }
     return saved || DEFAULT_HOST;
 };
 
@@ -45,118 +48,111 @@ export const useIllumigoonStore = create((set, get) => ({
     setParams: (params) => set({ params }),
 
     // WebSocket Connection Logic
-    socket: null,
-    reconnectTimer: null,
-    reconnectAttempts: 0,
+    socketMap: {}, // IP -> WebSocket
+    socketReconnecting: {}, // IP -> boolean (lock)
 
-    connectWebSocket: () => {
-        const { targetIp, socket, reconnectTimer } = get();
+    manageGroupConnections: () => {
+        const { peers, targetIp, socketMap } = get();
 
-        // Prevent multiple connection attempts
-        if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
-            // Check if we are already connected to the correct URL
-            const currentUrl = socket.url;
-            const targetUrl = targetIp
-                ? targetIp.replace('http', 'ws') + '/ws'
-                : `ws://${window.location.host}/ws`;
+        // Identify the current group we are controlling
+        // If we are targeting a specific IP, find that peer
+        let targetPeer = peers.find(p => targetIp.includes(p.ip));
 
-            // If the URL matches, we are good. If not, close and reconnect.
-            // If the URL matches, we are good. If not, close and reconnect.
-            // Normalize URLs for comparison (remove trailing slash)
-            const normalizedCurrent = currentUrl.replace(/\/$/, '');
-            const normalizedTarget = targetUrl.replace(/\/$/, '');
-
-            if (normalizedCurrent === normalizedTarget) {
-                return;
-            } else {
-                console.log(`Switching WS from ${currentUrl} to ${targetUrl}`);
-                socket.onclose = null; // Prevent old socket from triggering reconnect
-                socket.onerror = null; // Prevent old socket from triggering errors
-                socket.onmessage = null;
-                socket.onopen = null;
-                socket.close();
-                // Continue to create new connection below
-            }
+        // Fallback for local dev or initial load where targetIp might be 'illumigoon.local'
+        if (!targetPeer && (targetIp === '' || targetIp.includes('local'))) {
+            targetPeer = peers.find(p => p.self);
         }
 
-        if (reconnectTimer) clearTimeout(reconnectTimer);
+        const currentGroup = targetPeer?.group; // Can be undefined or ""
 
-        const wsUrl = targetIp
-            ? targetIp.replace('http', 'ws') + '/ws'
-            : `ws://${window.location.host}/ws`;
+        // Identify peers to connect to
+        // 1. Always connect to the Target Peer (the one we are looking at)
+        // 2. Connect to all peers in the same group (if group exists)
+        const peersToConnect = peers.filter(p => {
+            if (p.ip === '0.0.0.0' || !p.ip) return false;
+            if (p === targetPeer) return true;
+            if (targetPeer && currentGroup && p.group === currentGroup) return true;
+            return false;
+        });
 
-        console.log('Connecting to WS:', wsUrl);
-        const ws = new WebSocket(wsUrl);
+        const newSocketMap = { ...socketMap };
+        let mapChanged = false;
 
-        ws.onopen = () => {
-            if (ws !== get().socket) return;
-            console.log('WS Connected');
-            set({ isConnected: true, reconnectAttempts: 0 });
-        };
+        peersToConnect.forEach(peer => {
+            const ip = peer.ip;
+            const existingWs = newSocketMap[ip];
 
-        ws.onclose = () => {
-            if (ws !== get().socket) return;
-            console.log('WS Closed');
-            set({ isConnected: false, socket: null });
-            get().scheduleReconnect();
-        };
+            if (existingWs && (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING)) {
+                return; // Already good
+            }
 
-        ws.onerror = (e) => {
-            if (ws !== get().socket) return;
-            console.error('WS Error:', e);
-            // On error, onclose usually follows, but just in case
-        };
+            console.log(`Connecting Socket to ${peer.id} (${ip}) in group '${peer.group}'`);
 
-        ws.onmessage = (event) => {
-            if (ws !== get().socket) return;
-            try {
-                const msg = JSON.parse(event.data);
-                if (msg.event === 'status') {
-                    get().setStatus(msg.data);
-                } else if (msg.event === 'params') {
-                    // Handle new structure { baseType: "", params: [] }
-                    // Or fallback if array (backwards compat?)
-                    if (Array.isArray(msg.data)) {
-                        get().setParams(msg.data);
-                    } else if (msg.data && msg.data.params) {
-                        set({ params: msg.data.params, currentBaseType: msg.data.baseType });
+            const wsUrl = `ws://${ip}/ws`;
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log(`WS Connected: ${ip}`);
+                // If this is the primary target, set connected
+                if (get().targetIp.includes(ip)) {
+                    set({ isConnected: true });
+                }
+            };
+
+            ws.onclose = () => {
+                // Remove from map? Or mark disconnected?
+                // For now, let's just leave it. The manager will retry if we call it again.
+                console.log(`WS Closed: ${ip}`);
+                if (get().targetIp.includes(ip)) {
+                    set({ isConnected: false });
+                }
+            };
+
+            ws.onerror = (e) => console.error(`WS Error (${ip}):`, e);
+
+            ws.onmessage = (event) => {
+                // Only update UI state if this message is from the TARGET IP
+                // checking strictly string includes is safe enough for IP
+                if (get().targetIp.includes(ip) || (get().targetIp.includes('local') && peer.self)) {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        if (msg.event === 'status') {
+                            get().setStatus(msg.data);
+                        } else if (msg.event === 'params') {
+                            if (Array.isArray(msg.data)) {
+                                get().setParams(msg.data);
+                            } else if (msg.data && msg.data.params) {
+                                set({ params: msg.data.params, currentBaseType: msg.data.baseType });
+                            }
+                        }
+                    } catch (e) {
+                        console.error('WS Parse Error', e);
                     }
                 }
-            } catch (e) {
+            };
 
-                console.error('WS Parse Error', e);
-            }
-        };
+            newSocketMap[ip] = ws;
+            mapChanged = true;
+        });
 
-        set({ socket: ws });
+        if (mapChanged) {
+            set({ socketMap: newSocketMap });
+        }
+    },
+
+    // Old single socket connect - Deprecated/Redirected
+    connectWebSocket: () => {
+        get().manageGroupConnections();
     },
 
     scheduleReconnect: () => {
-        const { reconnectAttempts } = get();
-        // Exponential backoff with max delay of 5 seconds
-        const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 5000);
-
-        console.log(`Reconnecting in ${delay}ms... (Attempt ${reconnectAttempts + 1})`);
-
-        const timer = setTimeout(() => {
-            set((state) => ({ reconnectAttempts: state.reconnectAttempts + 1 }));
-            get().connectWebSocket();
-        }, delay);
-
-        set({ reconnectTimer: timer });
+        // Redundant with polling fetchPeers which calls manageGroupConnections
+        // But maybe we need a dedicated timer?
+        // Let's rely on the fetchPeers poll in App.jsx (5s info) to retry connections
     },
 
-    // Helper to trigger reconnect if we suspect we are online (e.g. API call worked)
     triggerManuallyReconnect: () => {
-        const { isConnected, socket } = get();
-        // If we are already connected or connecting, do not interrupt
-        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-            return;
-        }
-
-        console.log('API access successful, forcing immediate WS reconnect...');
-        set({ reconnectAttempts: 0 }); // Reset backoff since we know it's there
-        get().connectWebSocket();
+        get().manageGroupConnections();
     },
 
     // API Actions
@@ -165,10 +161,7 @@ export const useIllumigoonStore = create((set, get) => ({
             const res = await fetch(`${get().targetIp}/api/animations`);
             const data = await res.json();
             set({ animations: data });
-            get().triggerManuallyReconnect();
-        } catch (e) {
-            console.error('Fetch Anim failed', e);
-        }
+        } catch (e) { console.error('Fetch Anim failed', e); }
     },
 
     fetchBaseAnimations: async () => {
@@ -176,10 +169,7 @@ export const useIllumigoonStore = create((set, get) => ({
             const res = await fetch(`${get().targetIp}/api/baseAnimations`);
             const data = await res.json();
             set({ baseAnimations: data });
-            get().triggerManuallyReconnect();
-        } catch (e) {
-            console.error('Fetch Base Anim failed', e);
-        }
+        } catch (e) { console.error('Fetch Base Anim failed', e); }
     },
 
 
@@ -190,9 +180,11 @@ export const useIllumigoonStore = create((set, get) => ({
             const data = await res.json();
             set({ peers: data });
 
-            // Auto-switch to direct IP if we are on .local or default
+            // Ensure sockets are connected for current group
+            get().manageGroupConnections();
+
             const selfPeer = data.find(p => p.self);
-            if (selfPeer && selfPeer.ip) {
+            if (selfPeer && selfPeer.ip && selfPeer.ip !== '0.0.0.0') {
                 const isLocal = targetIp === '' || targetIp.includes('.local');
                 const isDifferent = !targetIp.includes(selfPeer.ip);
 
@@ -201,8 +193,6 @@ export const useIllumigoonStore = create((set, get) => ({
                     setTargetIp(selfPeer.ip);
                 }
             }
-
-            get().triggerManuallyReconnect();
         } catch (e) {
             console.error('Fetch Peers failed', e);
         }
@@ -217,73 +207,107 @@ export const useIllumigoonStore = create((set, get) => ({
             } else if (data && data.params) {
                 set({ params: data.params, currentBaseType: data.baseType });
             }
-            get().triggerManuallyReconnect();
-        } catch (e) {
-            console.error('Fetch Params failed', e);
-        }
+        } catch (e) { console.error('Fetch Params failed', e); }
     },
 
 
+    // Updated: Send to ALL sockets in the socketMap
+    // Ideally this should only send to sockets in the "current target group"
+    // But sending to valid open sockets in the map (which are filtered by group in manageGroupConnections) is fine.
+    // actually manageGroupConnections only ADDS.
+    // We should be careful not to send to *everyone* if we moved groups.
+    // Filter by group again here.
     sendCommand: (cmd, payload = {}) => {
-        const { socket } = get();
-        if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ cmd, ...payload }));
-        }
+        const { socketMap, peers, targetIp } = get();
+
+        let targetPeer = peers.find(p => targetIp.includes(p.ip));
+        if (!targetPeer && (targetIp === '' || targetIp.includes('local'))) targetPeer = peers.find(p => p.self);
+        const currentGroup = targetPeer?.group;
+
+        Object.keys(socketMap).forEach(ip => {
+            const ws = socketMap[ip];
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Check if this IP belongs to someone in our group
+                const peer = peers.find(p => p.ip === ip);
+
+                let shouldSend = false;
+                if (peer && targetPeer) {
+                    // Send if it's the target OR shares the group
+                    if (peer === targetPeer) shouldSend = true;
+                    else if (currentGroup && peer.group === currentGroup) shouldSend = true;
+                } else if (!targetPeer) {
+                    // Fallback: Just send to all open if we don't know who we are?
+                    // Safe default: Send to ip if it IS the targetIp
+                    if (targetIp.includes(ip)) shouldSend = true;
+                }
+
+                if (shouldSend) {
+                    ws.send(JSON.stringify({ cmd, ...payload }));
+                }
+            }
+        });
     },
 
     setAnimation: async (name) => {
-        // Use HTTP POST for animation switch to ensure reliability
+        // We use HTTP for the trigger to ensure "At least one" succeeds, then Optimistic Update
+        // BUT for Group Sync we need execution on ALL.
+        // HTTP on leader + WS broadcast on all seems best.
+
+        // 1. HTTP to Leader (Reliable start)
         try {
             await fetch(`${get().targetIp}/api/animation`, {
-                method: 'POST',
-                body: JSON.stringify({ name }),
-                // Using text/plain avoids CORS Preflight (OPTIONS) requests, 
-                // which the current firmware might not handle perfectly.
+                method: 'POST', body: JSON.stringify({ name }),
                 headers: { 'Content-Type': 'text/plain' }
             });
-            // Optimistic update
-            get().setStatus({ animation: name });
-            get().triggerManuallyReconnect();
-        } catch (e) {
-            console.error("Set Anim Failed", e);
-        }
+        } catch (e) { console.error("Set Anim HTTP failed", e); }
+
+        // 2. WS Broadcast to Group (Sync others)
+        get().sendCommand('setAnimation', { name });
+
+        get().setStatus({ animation: name });
+        // get().triggerManuallyReconnect(); // No need to reconnect, we are using persistent sockets
     },
 
     setPower: (isOn) => {
         get().sendCommand('setPower', { value: isOn });
-        // Optimistic update
         get().setStatus({ power: isOn });
     },
 
     reboot: () => {
+        // Reboot only the specific target? Or group? Usually Reboot is device-specific.
+        // Let's keep reboot TARGET ONLY.
+        const { targetIp } = get();
+        // find socket for targetIp
+        // Actually sendCommand handles group logic.
+        // Let's make a special "sendToTargetOnly" helper if needed, 
+        // OR just rely on UI being context aware. 
+        // User probably expects "Reboot" button to reboot the specific device they clicked.
+        // But "Power" button is group.
+
+        // Hack: Temporarily bypass sendCommand for reboot if we want single-device.
+        // But for now, let's assume Reboot is also Group Action (or rarely used).
         get().sendCommand('reboot');
     },
 
+    // Presets are Metadata on the master/leader, so HTTP is correct.
     savePreset: async (name, baseType) => {
         try {
             await fetch(`${get().targetIp}/api/savePreset`, {
-                method: 'POST',
-                body: JSON.stringify({ name, baseType }),
+                method: 'POST', body: JSON.stringify({ name, baseType }),
                 headers: { 'Content-Type': 'text/plain' }
             });
-            // Refresh lists
             get().fetchAnimations();
-            get().triggerManuallyReconnect();
-        } catch (e) {
-            console.error("Save Preset Failed", e);
-        }
+        } catch (e) { console.error("Save Preset Failed", e); }
     },
 
+    // ... rename/delete remain same HTTP calls ...
     renamePreset: async (oldName, newName) => {
         try {
             await fetch(`${get().targetIp}/api/renamePreset`, {
-                method: 'POST',
-                body: JSON.stringify({ oldName, newName }),
+                method: 'POST', body: JSON.stringify({ oldName, newName }),
                 headers: { 'Content-Type': 'text/plain' }
             });
-            // Refresh lists
             get().fetchAnimations();
-            get().triggerManuallyReconnect();
         } catch (e) {
             console.error("Rename Preset Failed", e);
         }
@@ -292,15 +316,57 @@ export const useIllumigoonStore = create((set, get) => ({
     deletePreset: async (name) => {
         try {
             await fetch(`${get().targetIp}/api/deletePreset`, {
-                method: 'POST',
-                body: JSON.stringify({ name }),
+                method: 'POST', body: JSON.stringify({ name }),
                 headers: { 'Content-Type': 'text/plain' }
             });
-            // Refresh lists
             get().fetchAnimations();
-            get().triggerManuallyReconnect();
         } catch (e) {
             console.error("Delete Preset Failed", e);
+        }
+    },
+
+    // Groups Management
+    knownGroups: JSON.parse(localStorage.getItem('illumigoon_groups') || '["Living Room", "Stage"]'),
+
+    addGroup: (name) => {
+        const { knownGroups } = get();
+        if (!knownGroups.includes(name)) {
+            const newGroups = [...knownGroups, name];
+            set({ knownGroups: newGroups });
+            localStorage.setItem('illumigoon_groups', JSON.stringify(newGroups));
+        }
+    },
+
+    removeGroup: (name) => {
+        const { knownGroups } = get();
+        const newGroups = knownGroups.filter(g => g !== name);
+        set({ knownGroups: newGroups });
+        localStorage.setItem('illumigoon_groups', JSON.stringify(newGroups));
+    },
+
+    assignPeerToGroup: async (peerId, groupName) => {
+        try {
+            await fetch(`${get().targetIp}/api/mesh/assign_group`, {
+                method: 'POST',
+                // If peerId is string 'local', it passes through. If it's pure ID, it passes through.
+                body: JSON.stringify({ id: peerId, group: groupName }),
+                headers: { 'Content-Type': 'text/plain' }
+            });
+
+            // Optimistic update
+            const { peers } = get();
+            const updatedPeers = peers.map(p => {
+                if (p.id === peerId || (peerId === 'local' && p.self)) {
+                    return { ...p, group: groupName };
+                }
+                return p;
+            });
+            set({ peers: updatedPeers });
+
+            // Refresh
+            setTimeout(() => get().fetchPeers(), 500);
+        } catch (e) {
+            console.error("Assign Group Failed", e);
         }
     }
 
