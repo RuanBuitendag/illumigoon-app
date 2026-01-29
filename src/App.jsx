@@ -5,6 +5,7 @@ import { HeroData } from './components/HeroData';
 import { BaseAnimationSelector } from './components/BaseAnimationSelector';
 import { AnimationSelector } from './components/AnimationSelector';
 import { ParamControls } from './components/ParamControls';
+import { DeviceSettings } from './components/DeviceSettings';
 import { Dashboard } from './components/Dashboard';
 
 function App() {
@@ -13,12 +14,8 @@ function App() {
 
   useEffect(() => {
     connectWebSocket();
-    fetchAnimations();
-    fetchBaseAnimations();
-    fetchParams();
-    // Fetch peers to populate dashboard
+    // Initial fetch of peers might be needed to start discovery if not connected yet
     useIllumigoonStore.getState().fetchPeers();
-
 
     const interval = setInterval(() => {
       fetchParams();
@@ -44,6 +41,7 @@ function App() {
             {/* Left Column: Status & Controls */}
             <div className="lg:col-span-4 lg:sticky lg:top-8 space-y-6 h-fit">
               <HeroData status={status} />
+              <DeviceSettings />
               <ParamControls />
             </div>
 
