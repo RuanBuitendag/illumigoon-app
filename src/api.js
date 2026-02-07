@@ -4,6 +4,7 @@ import { create } from 'zustand';
 const isDev = import.meta.env.DEV;
 const DEFAULT_HOST = isDev ? 'http://illumigoon.local' : ''; // mDNS hostname for local dev
 
+
 // Try to load saved IP from localStorage, otherwise use default
 const getInitialTargetIp = () => {
     const saved = localStorage.getItem('illumigoon_target_ip');
@@ -57,9 +58,10 @@ export const useIllumigoonStore = create((set, get) => ({
 
         // Extract raw IP from targetIp for bootstrapping
         let rawTargetIp = null;
-        if (targetIp && !targetIp.includes('local')) {
+        if (targetIp && !targetIp.includes('localhost') && !targetIp.includes('127.0.0.1')) {
             rawTargetIp = targetIp.replace('http://', '').replace('https://', '').replace(/\/$/, '');
         }
+
 
         // Identify peers to connect to (Target + Group Members)
         // We use a Map to ensure uniqueness by IP
@@ -101,6 +103,7 @@ export const useIllumigoonStore = create((set, get) => ({
 
             console.log(`Connecting Socket to ${peer.id} (${ip}) in group '${peer.group}'`);
 
+
             const wsUrl = `ws://${ip}/ws`;
             const ws = new WebSocket(wsUrl);
 
@@ -122,6 +125,14 @@ export const useIllumigoonStore = create((set, get) => ({
                 console.log(`WS Closed: ${ip}`);
                 if (get().targetIp.includes(ip)) {
                     set({ isConnected: false });
+
+                    // Auto-Fallback for Stale IP (Dev Mode)
+                    // If we fail to connect to a specific cached IP, try the default hostname
+                    const currentTarget = get().targetIp;
+                    if (isDev && currentTarget && !currentTarget.includes('illumigoon.local') && DEFAULT_HOST) {
+                        console.warn(`[Auto-Fallback] Connection to ${currentTarget} failed. Retrying with default: ${DEFAULT_HOST}`);
+                        get().setTargetIp(DEFAULT_HOST);
+                    }
                 }
             };
 
