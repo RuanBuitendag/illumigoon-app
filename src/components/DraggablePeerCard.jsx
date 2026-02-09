@@ -1,43 +1,68 @@
-import React from 'react';
-// Used Framer Motion instead of dnd-kit
-// User approved Framer Motion. 
-// Plan said: "Droppable zone using framer-motion" and "DraggablePeerCard ... with drag handles"
-
-// Using Framer Motion for Drag and Drop
+import React, { useState } from 'react';
 import { motion, useDragControls } from 'framer-motion';
-import { Server, Router, GripVertical } from 'lucide-react';
+import { Server, Router, GripVertical, Check, X } from 'lucide-react';
 import { useIllumigoonStore } from '../api';
 import { useRef } from 'react';
 
 export const DraggablePeerCard = ({ peer, isSelected }) => {
-    const { setTargetIp, assignPeerToGroup } = useIllumigoonStore();
+    const { setTargetIp, assignPeerToGroup, renameDevice, targetIp } = useIllumigoonStore();
     const dragControls = useDragControls();
     const cardRef = useRef(null);
+
+    // Edit state
+    const [isEditing, setIsEditing] = useState(false);
+    const [editName, setEditName] = useState('');
+
+    const displayName = peer.name || `Device ${peer.id.substring(0, 6)}`;
+    const canEdit = peer.self || targetIp.includes(peer.ip);
+
+    const handleStartEdit = (e) => {
+        e.stopPropagation();
+        setEditName(peer.name || peer.id.substring(0, 8));
+        setIsEditing(true);
+    };
+
+    const handleSaveEdit = (e) => {
+        e.stopPropagation();
+        if (editName.trim()) {
+            renameDevice(editName.trim());
+        }
+        setIsEditing(false);
+        setEditName('');
+    };
+
+    const handleCancelEdit = (e) => {
+        e.stopPropagation();
+        setIsEditing(false);
+        setEditName('');
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            handleSaveEdit(e);
+        } else if (e.key === 'Escape') {
+            handleCancelEdit(e);
+        }
+    };
 
     return (
         <motion.div
             ref={cardRef}
             layoutId={`peer-${peer.id}`}
             drag
-            dragListener={false} // Only drag via handle
+            dragListener={false}
             dragControls={dragControls}
             dragSnapToOrigin
             whileDrag={{ scale: 1.05, zIndex: 100, cursor: 'grabbing' }}
             onDragEnd={(event, info) => {
-                // HACK: Temporarily make the card ignored by elementFromPoint
                 if (cardRef.current) {
                     const originalPointerEvents = cardRef.current.style.pointerEvents;
                     cardRef.current.style.pointerEvents = 'none';
-
-                    // Check what's underneath
                     const dropTarget = document.elementFromPoint(info.point.x, info.point.y)?.closest('[data-group-id]');
-
-                    // Restore
                     cardRef.current.style.pointerEvents = originalPointerEvents;
 
                     if (dropTarget) {
                         const groupId = dropTarget.getAttribute('data-group-id');
-                        // Check if group changed
                         const currentGroup = peer.group || 'Lobby';
                         const targetGroup = groupId;
 
@@ -62,7 +87,7 @@ export const DraggablePeerCard = ({ peer, isSelected }) => {
                 <GripVertical size={16} />
             </div>
 
-            {/* Content Container - Clickable for selection */}
+            {/* Content Container */}
             <div
                 className="flex-grow flex flex-col gap-1 min-w-0 cursor-pointer"
                 onClick={() => {
@@ -83,21 +108,50 @@ export const DraggablePeerCard = ({ peer, isSelected }) => {
                     )}
                 </div>
 
-                <div className="flex flex-col">
-                    <span className="text-xs font-mono text-zinc-200 truncate leading-tight">
-                        {peer.ip}
-                    </span>
-                    <span className="text-[9px] font-mono text-zinc-600 truncate">
-                        {peer.id.substring(0, 8)}
-                    </span>
-                </div>
+                {/* Device Name - Editable */}
+                {isEditing ? (
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                        <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            className="flex-1 bg-zinc-800 border border-brand-500/50 rounded px-1 py-0.5 text-[10px] text-white focus:outline-none min-w-0"
+                            autoFocus
+                            maxLength={31}
+                        />
+                        <button onClick={handleSaveEdit} className="p-0.5 hover:bg-emerald-500/20 rounded">
+                            <Check size={10} className="text-emerald-400" />
+                        </button>
+                        <button onClick={handleCancelEdit} className="p-0.5 hover:bg-red-500/20 rounded">
+                            <X size={10} className="text-red-400" />
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-1">
+                        <span className="text-xs font-medium text-zinc-200 truncate leading-tight">
+                            {displayName}
+                        </span>
+                        {canEdit && (
+                            <button
+                                onClick={handleStartEdit}
+                                className="text-[10px] text-brand-400 hover:text-brand-300 px-1 rounded shrink-0"
+                            >
+                                ✏️
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                <span className="text-[9px] font-mono text-zinc-600 truncate">
+                    {peer.ip}
+                </span>
             </div>
 
-            {/* Selection Indicator / Status */}
+            {/* Selection Indicator */}
             {isSelected && (
                 <div className="absolute top-2 right-2 w-2 h-2 bg-brand-500 rounded-full animate-pulse" />
             )}
-
         </motion.div>
     );
 };

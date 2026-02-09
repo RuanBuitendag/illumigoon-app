@@ -4,6 +4,11 @@ import { create } from 'zustand';
 const isDev = import.meta.env.DEV;
 const DEFAULT_HOST = isDev ? 'http://illumigoon.local' : ''; // mDNS hostname for local dev
 
+// IMPORTANT: Store WebSocket instances outside of Zustand state to prevent
+// them from being garbage collected or lost during state updates.
+// Zustand's state immutability pattern creates new objects on each update,
+// which can cause issues with mutable objects like WebSockets.
+const persistentSocketMap = new Map(); // IP -> WebSocket
 
 // Try to load saved IP from localStorage, otherwise use default
 const getInitialTargetIp = () => {
@@ -41,11 +46,10 @@ export const useIllumigoonStore = create((set, get) => ({
     setParams: (params) => set({ params }),
     setBaseAnimations: (baseAnimations) => set({ baseAnimations }),
 
-    // WebSocket Connection Logic
-    socketMap: {}, // IP -> WebSocket
+    // WebSocket Connection Logic - socketMap is now external to avoid state issues
 
     manageGroupConnections: () => {
-        const { peers, targetIp, socketMap } = get();
+        const { peers, targetIp } = get();
 
         // Identify the current group we are controlling
         let targetPeer = peers.find(p => targetIp.includes(p.ip));
@@ -90,12 +94,9 @@ export const useIllumigoonStore = create((set, get) => ({
 
         const peersToConnect = Array.from(peersToConnectMap.values());
 
-        const newSocketMap = { ...socketMap };
-        let mapChanged = false;
-
         peersToConnect.forEach(peer => {
             const ip = peer.ip;
-            const existingWs = newSocketMap[ip];
+            const existingWs = persistentSocketMap.get(ip);
 
             if (existingWs && (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING)) {
                 return; // Already good
@@ -178,13 +179,8 @@ export const useIllumigoonStore = create((set, get) => ({
                 }
             };
 
-            newSocketMap[ip] = ws;
-            mapChanged = true;
+            persistentSocketMap.set(ip, ws);
         });
-
-        if (mapChanged) {
-            set({ socketMap: newSocketMap });
-        }
     },
 
     connectWebSocket: () => {
@@ -197,9 +193,9 @@ export const useIllumigoonStore = create((set, get) => ({
 
     // --- API ACTIONS (Converted to WebSocket) ---
 
-    // Send to ALL sockets in the socketMap (Broadcast/Group)
+    // Send to ALL sockets in the persistentSocketMap (Broadcast/Group)
     sendCommand: (cmd, payload = {}) => {
-        const { socketMap, peers, targetIp } = get();
+        const { peers, targetIp } = get();
 
         // 1. Determine "targetPeer"
         let targetPeer = peers.find(p => targetIp.includes(p.ip));
@@ -209,8 +205,7 @@ export const useIllumigoonStore = create((set, get) => ({
 
         const currentGroup = targetPeer?.group;
 
-        Object.keys(socketMap).forEach(ip => {
-            const ws = socketMap[ip];
+        persistentSocketMap.forEach((ws, ip) => {
             // Skip if not open (e.g. connecting or closing)
             if (ws && ws.readyState === WebSocket.OPEN) {
                 const peer = peers.find(p => p.ip === ip);
@@ -236,7 +231,7 @@ export const useIllumigoonStore = create((set, get) => ({
 
     // Helper: Send to Target Device ONLY
     sendToTarget: (cmd, payload = {}) => {
-        const { socketMap, targetIp, peers } = get();
+        const { targetIp, peers } = get();
         let targetPeer = peers.find(p => targetIp.includes(p.ip));
         if (!targetPeer && (targetIp === '' || targetIp.includes('local'))) {
             targetPeer = peers.find(p => p.self);
@@ -246,8 +241,8 @@ export const useIllumigoonStore = create((set, get) => ({
         // The onopen handler will trigger hydration, so we can safely ignore if not ready.
         if (!targetPeer) return;
 
-        if (socketMap[targetPeer.ip]) {
-            const ws = socketMap[targetPeer.ip];
+        if (persistentSocketMap.has(targetPeer.ip)) {
+            const ws = persistentSocketMap.get(targetPeer.ip);
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ cmd, ...payload }));
                 return;
@@ -337,6 +332,21 @@ export const useIllumigoonStore = create((set, get) => ({
         const { status } = get();
         set({ status: { ...status, phase } });
         get().sendToTarget('setPhase', { value: phase });
+    },
+
+    renameDevice: (newName) => {
+        // Optimistic update for self
+        const { peers } = get();
+        const updatedPeers = peers.map(p => {
+            if (p.self) {
+                return { ...p, name: newName };
+            }
+            return p;
+        });
+        set({ peers: updatedPeers });
+
+        // Send to target device
+        get().sendToTarget('renameDevice', { name: newName });
     }
 
 }));
